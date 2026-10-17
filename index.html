@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Ocean Swimmer</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b3a5c; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+</style>
+</head>
+<body>
+<canvas id="sea"></canvas>
+<script>
+const cv = document.getElementById('sea');
+const ctx = cv.getContext('2d');
+let W, H, dpr;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize);
+resize();
+
+// --- one glove, drawn once, then stamped many times ---
+const glove = (() => {
+  const S = 128, c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.translate(S / 2, S / 2);
+  g.fillStyle = '#fff';
+  g.beginPath(); g.roundRect(-34, -50, 62, 62, 28); g.fill();      // fist
+  g.beginPath(); g.ellipse(-30, 2, 14, 20, 0.5, 0, 7); g.fill();   // thumb
+  g.beginPath(); g.roundRect(-26, 8, 46, 34, 6); g.fill();         // cuff
+  g.globalCompositeOperation = 'source-atop';
+  const grad = g.createRadialGradient(-8, -24, 4, 0, -4, 66);
+  grad.addColorStop(0, 'rgba(235,250,255,.35)');
+  grad.addColorStop(0.7, 'rgba(150,210,255,.55)');
+  grad.addColorStop(1, 'rgba(110,190,255,.95)');
+  g.fillStyle = grad; g.fillRect(-64, -64, 128, 128);
+  g.fillStyle = 'rgba(255,255,255,.9)';                            // bubble shine
+  g.beginPath(); g.ellipse(-12, -34, 9, 5, -0.6, 0, 7); g.fill();
+  g.globalCompositeOperation = 'source-over';
+  g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 2;
+  g.beginPath(); g.roundRect(-34, -50, 62, 62, 28); g.stroke();
+  g.beginPath(); g.roundRect(-26, 8, 46, 34, 6); g.stroke();
+  g.beginPath(); g.ellipse(-30, 2, 14, 20, 0.5, 0, 7); g.stroke();
+  return c;
+})();
+
+// --- state ---
+const roo = { x: innerWidth / 2, y: innerHeight / 2, vx: 0, vy: 0, face: 1, tilt: 0 };
+const target = { x: roo.x, y: roo.y };
+const gloves = [], pops = [];
+let t = 0, lastGlove = 0;
+
+function aim(e) { target.x = e.clientX; target.y = e.clientY; }
+cv.addEventListener('pointermove', aim);
+cv.addEventListener('pointerdown', e => {
+  aim(e);
+  for (let i = gloves.length - 1; i >= 0; i--) {
+    const b = gloves[i];
+    if (Math.hypot(e.clientX - b.x, e.clientY - b.y) < b.size * 0.6) {
+      for (let k = 0; k < 8; k++) {
+        const a = Math.random() * 6.28, v = 0.5 + Math.random() * 1.5;
+        pops.push({ x: b.x, y: b.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1 });
+      }
+      gloves.splice(i, 1);
+      break;
+    }
+  }
+});
+
+function drawRoo() {
+  const flap = Math.sin(t * 6) * 0.35;
+  ctx.save();
+  ctx.translate(roo.x, roo.y);
+  ctx.scale(roo.face, 1);
+  ctx.rotate(roo.tilt);
+  ctx.fillStyle = '#17202e';
+  ctx.strokeStyle = '#17202e'; ctx.lineCap = 'round';
+  // tail
+  ctx.lineWidth = 11;
+  ctx.beginPath(); ctx.moveTo(-26, 6); ctx.quadraticCurveTo(-60, 14 + flap * 12, -78, -4 + flap * 18); ctx.stroke();
+  // body
+  ctx.beginPath(); ctx.ellipse(-4, 2, 34, 20, -0.35, 0, 7); ctx.fill();
+  // neck + head
+  ctx.beginPath(); ctx.ellipse(28, -16, 11, 16, 0.5, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(40, -26, 14, 9, -0.25, 0, 7); ctx.fill();
+  // ears
+  ctx.beginPath(); ctx.ellipse(30, -42, 4.5, 14, -0.2, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(40, -42, 4.5, 13, 0.15, 0, 7); ctx.fill();
+  // little arm
+  ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(24, -2); ctx.lineTo(38, 8 + flap * 6); ctx.stroke();
+  // big hind leg, kicking
+  ctx.save();
+  ctx.translate(-14, 12); ctx.rotate(flap);
+  ctx.beginPath(); ctx.ellipse(0, 10, 12, 20, 0.3, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(10, 30, 20, 5, 0.1, 0, 7); ctx.fill();
+  ctx.restore();
+  // eye
+  ctx.fillStyle = '#bfe6ff';
+  ctx.beginPath(); ctx.arc(44, -28, 2, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+let prev = performance.now();
+function frame(now) {
+  const dt = Math.min((now - prev) / 1000, 0.05) * 60; prev = now;
+  t += 0.016 * dt;
+
+  // sea
+  const sea = ctx.createLinearGradient(0, 0, 0, H);
+  sea.addColorStop(0, '#2f8fc4'); sea.addColorStop(1, '#06223a');
+  ctx.fillStyle = sea; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 5; i++) {
+    const x = ((i + 0.5) / 5) * W + Math.sin(t * 0.4 + i * 2) * 60, w = 40 + 30 * Math.sin(i * 3 + t * 0.3);
+    const ray = ctx.createLinearGradient(0, 0, 0, H * 0.8);
+    ray.addColorStop(0, 'rgba(180,230,255,.14)'); ray.addColorStop(1, 'rgba(180,230,255,0)');
+    ctx.fillStyle = ray;
+    ctx.beginPath(); ctx.moveTo(x - w * 0.3, 0); ctx.lineTo(x + w * 0.3, 0);
+    ctx.lineTo(x + w * 2 + 80, H * 0.8); ctx.lineTo(x - w * 2 + 80, H * 0.8); ctx.fill();
+  }
+  ctx.restore();
+
+  // kangaroo glides toward the pointer
+  const dx = target.x - roo.x, dy = target.y - roo.y, dist = Math.hypot(dx, dy);
+  const speedGoal = Math.min(dist * 0.05, 7);
+  const ux = dist > 1 ? dx / dist : 0, uy = dist > 1 ? dy / dist : 0;
+  roo.vx += (ux * speedGoal - roo.vx) * 0.06 * dt;
+  roo.vy += (uy * speedGoal - roo.vy) * 0.06 * dt;
+  roo.x += roo.vx * dt; roo.y += roo.vy * dt + Math.sin(t * 2) * 0.15;
+  if (Math.abs(roo.vx) > 0.3) roo.face += ((roo.vx > 0 ? 1 : -1) - roo.face) * 0.2;
+  roo.tilt += ((roo.vy * 0.06 * roo.face) - roo.tilt) * 0.1;
+  const speed = Math.hypot(roo.vx, roo.vy);
+
+  // faster swimming, more gloves
+  if (now - lastGlove > Math.max(250, 1500 - speed * 180)) {
+    lastGlove = now;
+    gloves.push({
+      x: roo.x + roo.face * 42, y: roo.y - 26, size: 20 + Math.random() * 22,
+      vy: -(0.4 + Math.random() * 0.5), ph: Math.random() * 6.28, life: 1
+    });
+  }
+
+  drawRoo();
+
+  for (let i = gloves.length - 1; i >= 0; i--) {
+    const b = gloves[i];
+    b.y += b.vy * dt; b.x += Math.sin(t * 1.5 + b.ph) * 0.5 * dt;
+    b.life -= 0.0035 * dt;
+    if (b.life <= 0 || b.y < -50) { gloves.splice(i, 1); continue; }
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, b.life * 2) * 0.85;
+    ctx.translate(b.x, b.y); ctx.rotate(Math.sin(t * 1.2 + b.ph) * 0.35);
+    ctx.drawImage(glove, -b.size, -b.size, b.size * 2, b.size * 2);
+    ctx.restore();
+  }
+
+  for (let i = pops.length - 1; i >= 0; i--) {
+    const p = pops[i];
+    p.x += p.vx * dt; p.y += p.vy * dt; p.life -= 0.04 * dt;
+    if (p.life <= 0) { pops.splice(i, 1); continue; }
+    ctx.strokeStyle = `rgba(220,245,255,${p.life})`; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3 + (1 - p.life) * 4, 0, 7); ctx.stroke();
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
